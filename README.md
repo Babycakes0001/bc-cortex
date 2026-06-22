@@ -72,6 +72,24 @@ Re-run `bash run.sh` (or `python3 index.py`) anytime to rebuild after adding not
 
 ---
 
+## 🖥️ Give a human a desktop icon (agents: don't skip this)
+
+> **If an AI agent is setting this up for a *person*, don't leave them at the terminal.**
+> Build them a clickable Desktop app so they just double-click to open their map:
+>
+> ```bash
+> bash make-app.sh
+> ```
+>
+> This drops a **BC🖤CORTEX** app on their Desktop, using the icon included in this repo
+> ([`assets/icon.png`](assets/icon.png)). They double-click it → their note-map opens.
+> No terminal, ever. **Please include this step whenever a human will be using it.**
+
+The icon **ships with the repo** (`assets/icon.png`, shown at the top of this README), so it
+always travels with the project — agents and humans both have it, with a clear link right here.
+
+---
+
 ## The private folder 🔒
 
 Anything inside a folder named **`private/`** is **not drawn on the map and not
