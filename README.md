@@ -1,6 +1,12 @@
+<p align="center">
+  <img src="assets/icon.png" alt="BC🖤CORTEX" width="200">
+</p>
+
 # BC🖤CORTEX
 
 **A private, self-hosted star-map of your own mind.**
+
+> 🎨 **Icon:** [`assets/icon.png`](assets/icon.png) — free to use when sharing BC Cortex.
 
 Point it at a folder of Markdown notes and it renders them as a living neon
 constellation — every note a star, every link a thread between them — that you
