@@ -53,6 +53,9 @@ cd bc-cortex
 bash run.sh         # builds the map + opens it in your browser
 ```
 
+**Prefer not to use the terminal?** After cloning, just **double-click `BC-Cortex.command`**
+in Finder (macOS) — same thing, no typing. (First time, if macOS blocks it: right-click it → **Open**.)
+
 That's it. To point it at a different folder instead of `brain/`:
 
 ```bash
