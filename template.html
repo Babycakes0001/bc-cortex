@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BC🖤CORTEX</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000005; overflow: hidden;
+               font-family: -apple-system, "SF Pro Display", Helvetica, sans-serif; }
+  #graph { width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 14px; left: 16px; z-index: 10; color: #cfc8ff;
+    text-shadow: 0 0 8px rgba(160,120,255,.8); pointer-events: none;
+  }
+  #hud h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .12em; }
+  #hud .sub { font-size: 11px; opacity: .75; margin-top: 3px; }
+  #legend {
+    position: fixed; bottom: 14px; left: 16px; z-index: 10; font-size: 11px;
+    color: #bbb; line-height: 1.7;
+  }
+  #legend span.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle; box-shadow: 0 0 6px currentColor; }
+  #panel {
+    position: fixed; top: 0; right: 0; width: 440px; max-height: 100vh; z-index: 20;
+    background: rgba(8,4,22,.92); border-left: 1px solid rgba(170,120,255,.35);
+    color: #e8e2ff; padding: 18px; box-sizing: border-box; display: none;
+    backdrop-filter: blur(6px); overflow-y: auto;
+  }
+  #panel h2 { font-size: 14px; margin: 0 0 4px; color: #fff; word-break: break-word; }
+  #panel .path { font-size: 10px; color: #9a8fd0; word-break: break-all; }
+  #panel .meta { font-size: 11px; color: #b9aef0; margin: 10px 0; }
+  #panel .desc { font-size: 12px; line-height: 1.5; color: #d8d2f5; }
+  #panel .content {
+    margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(170,120,255,.25);
+    font-size: 11.5px; line-height: 1.55; color: #cfc8ea; white-space: pre-wrap;
+    word-break: break-word; font-family: "SF Mono", Menlo, monospace;
+  }
+  #panel .close { position: absolute; top: 10px; right: 14px; cursor: pointer;
+    color: #9a8fd0; font-size: 16px; }
+  #search {
+    position: fixed; top: 14px; right: 16px; z-index: 15;
+    background: rgba(10,6,28,.85); border: 1px solid rgba(170,120,255,.4);
+    border-radius: 16px; color: #efeaff; padding: 7px 14px; font-size: 12px;
+    width: 200px; outline: none;
+  }
+  #search::placeholder { color: #7d72b5; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <h1>BC🖤CORTEX</h1>
+  <div class="sub" id="stats">🌌 waking the brain…</div>
+</div>
+<div id="errbox" style="position:fixed;bottom:60px;left:16px;right:16px;z-index:50;color:#ff8a8a;
+  font-size:11px;font-family:Menlo,monospace;white-space:pre-wrap;display:none;
+  background:rgba(40,0,10,.85);padding:10px;border-radius:8px;"></div>
+<script>
+  // failures must be visible, never a silent black screen
+  window.__showErr = msg => {
+    const el = document.getElementById('errbox');
+    el.style.display = 'block';
+    el.textContent = (el.textContent + '\n' + msg).trim().slice(0, 800);
+  };
+  window.addEventListener('error', e => window.__showErr('⚠️ ' + (e.message || e.type)));
+  window.addEventListener('unhandledrejection', e => window.__showErr('⚠️ ' + (e.reason?.message || e.reason || 'promise rejected')));
+  if (!HTMLScriptElement.supports || !HTMLScriptElement.supports('importmap'))
+    window.__showErr('⚠️ this browser does not support import maps — galaxy needs a newer Safari/Chrome');
+</script>
+<input id="search" type="text" placeholder="find a star…" autocomplete="off">
+<div id="legend"></div>
+<div id="panel"><span class="close" onclick="panel.style.display='none';var _mn=document.getElementById('matchnav');if(_mn)_mn.style.display='none'">✕</span><div id="panel-body"></div></div>
+<div id="graph"></div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
+    "three/webgpu": "https://unpkg.com/three@0.180.0/build/three.webgpu.js",
+    "three/tsl": "https://unpkg.com/three@0.180.0/build/three.tsl.js",
+    "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/",
+    "three/examples/jsm/": "https://unpkg.com/three@0.180.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import ForceGraph3D from 'https://esm.sh/3d-force-graph@1.79.0?external=three';
+import SpriteText from 'https://esm.sh/three-spritetext@1.10.0?external=three';
+import { forceX, forceY, forceZ } from 'https://esm.sh/d3-force-3d@3.0.6';
+
+// Infinity-Stone orbs: each star is a translucent glowing shell (the default
+// node sphere, dropped to low opacity) with a hot bright core sphere inside
+// it — lit from within, not painted flat. A shared low-poly geometry keeps
+// 1,200+ orbs cheap. Bloom (desktop) turns the cores into gem-glow.
+const CORE_GEO = new THREE.SphereGeometry(1, 12, 12);
+const _coreMat = {};
+function coreMaterial(hex) {
+  if (!_coreMat[hex]) {
+    _coreMat[hex] = new THREE.MeshBasicMaterial({
+      color: hex, transparent: true, opacity: 0.92,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+  }
+  return _coreMat[hex];
+}
+
+const DATA = __GRAPH_DATA__;
+const VIEW_ONLY = __VIEW_ONLY__;  // dashboard build: fly around, read nothing
+
+// degree per node — drives which stars carry an always-on name
+const deg = {};
+DATA.links.forEach(l => { deg[l.source] = (deg[l.source] || 0) + 1; deg[l.target] = (deg[l.target] || 0) + 1; });
+const brightest = new Set(DATA.nodes.filter(n => n.group === 'soul').map(n => n.id));
+if (!VIEW_ONLY) {
+  DATA.nodes.filter(n => n.group !== 'dust')
+    .sort((a, b) => (deg[b.id] || 0) - (deg[a.id] || 0)).slice(0, 24)
+    .forEach(n => brightest.add(n.id));
+}
+
+// constellation directions — each group leans toward its own patch of sky
+const groupNames = [...new Set(DATA.nodes.map(n => n.group))];
+const skyDir = {};
+groupNames.forEach((g, i) => {
+  const phi = Math.acos(1 - 2 * (i + 0.5) / groupNames.length);
+  const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+  skyDir[g] = [Math.sin(phi) * Math.cos(theta), Math.sin(phi) * Math.sin(theta), Math.cos(phi)];
+});
+
+const COLORS = __COLORS__;
+const LABELS = __LABELS__;
+
+const IS_MOBILE = matchMedia('(pointer: coarse)').matches;
+
+document.getElementById('stats').textContent =
+  `${DATA.nodes.length} stars · ${DATA.links.length} connections · indexed ${DATA.generated}`;
+
+const legend = document.getElementById('legend');
+legend.innerHTML = Object.entries(LABELS)
+  .map(([k, v]) => `<div><span class="dot" style="color:${COLORS[k]};background:${COLORS[k]}"></span>${v}</div>`)
+  .join('');
+
+const panel = window.panel = document.getElementById('panel');
+const panelBody = document.getElementById('panel-body');
+
+const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph'))
+  .graphData(DATA)
+  .backgroundColor('#000005')
+  .nodeLabel(n => `<div style="color:#fff;background:rgba(10,5,30,.85);padding:4px 8px;border-radius:6px;font-size:11px">${n.label}<br><span style="opacity:.6">${n.group} · ${n.mtime}</span></div>`)
+  .nodeColor(n => COLORS[n.group] || COLORS.memory)
+  .nodeVal('val')
+  .nodeOpacity(0.42)
+  .nodeResolution(12)
+  .linkColor(l => {
+    const g = s => (typeof s === 'object' ? s.group : '');
+    return (g(l.source) === 'dust' || g(l.target) === 'dust')
+      ? 'rgba(255,255,255,0.07)' : 'rgba(150,120,255,0.25)';
+  })
+  .linkWidth(l => Math.min(1.4, 0.3 + l.w * 0.18))
+  .linkDirectionalParticles(l => (!IS_MOBILE && l.w > 2 ? 2 : 0))
+  .linkDirectionalParticleWidth(1.2)
+  .linkDirectionalParticleSpeed(0.004)
+  .nodeThreeObjectExtend(true)
+  .nodeThreeObject(n => {
+    const group = new THREE.Group();
+    // hot inner core — the gem's light source (dust gets a fainter ember)
+    const hex = COLORS[n.group] || COLORS.memory;
+    const core = new THREE.Mesh(CORE_GEO, coreMaterial(n.group === 'dust' ? '#cfd4e8' : hex));
+    const r = (n.val || 1.5) * (n.group === 'dust' ? 0.34 : 0.5);
+    core.scale.setScalar(r);
+    if (n.group === 'dust') core.material = core.material.clone(), core.material.opacity = 0.5;
+    group.add(core);
+    // always-on name for the brightest stars
+    if (brightest.has(n.id)) {
+      const s = new SpriteText(n.label, 7, n.group === 'soul' ? '#ffe9a8' : '#e6e0ff');
+      s.position.y = 9 + n.val;
+      s.material.depthWrite = false;
+      s.backgroundColor = 'rgba(5,2,18,0.55)';
+      s.padding = 1.5;
+      s.borderRadius = 2;
+      group.add(s);
+    }
+    return group;
+  })
+  .onNodeClick(n => {
+    if (!VIEW_ONLY) { galaxyOpenPath(n.id); return; }
+    const ratio = 1 + 90 / Math.hypot(n.x, n.y, n.z);
+    Graph.cameraPosition({ x: n.x * ratio, y: n.y * ratio, z: n.z * ratio }, n, 1200);
+    panelBody.innerHTML = `
+      <h2>${n.label}</h2>
+      <div class="meta">${LABELS[n.group] || n.group} · ${(n.size / 1024).toFixed(1)} KB · touched ${n.mtime}</div>
+      <div class="desc">${n.desc || ''}</div>`;
+    panel.style.display = 'block';
+  });
+
+// fill the window — and keep filling it as Mike drags the window bigger/smaller
+function fitToWindow() { Graph.width(window.innerWidth).height(window.innerHeight); }
+fitToWindow();
+window.addEventListener('resize', fitToWindow);
+
+// constellation pull — same kind drifts together; dust barely held, so it halos
+const R = 170;
+const pull = n => (n.group === 'dust' ? 0.012 : 0.038);
+Graph.d3Force('skyX', forceX(n => skyDir[n.group][0] * R).strength(pull));
+Graph.d3Force('skyY', forceY(n => skyDir[n.group][1] * R).strength(pull));
+Graph.d3Force('skyZ', forceZ(n => skyDir[n.group][2] * R).strength(pull));
+
+// alive: every star breathes on its own irregular clock (two layered sines so
+// the rhythm never repeats cleanly — Mike's "pulsating irregularly" ask)
+DATA.nodes.forEach(n => {
+  n._ph = Math.random() * Math.PI * 2;
+  n._fr = 0.35 + Math.random() * 1.2;
+  n._fr2 = 0.1 + Math.random() * 0.35;
+});
+(function breathe() {
+  const t = performance.now() / 1000;
+  for (const n of DATA.nodes) {
+    const o = n.__threeObj;
+    if (!o) continue;
+    const k = n.group === 'dust' ? 0.10 : 0.22;
+    o.scale.setScalar(1 + k * (0.6 * Math.sin(t * n._fr + n._ph) + 0.4 * Math.sin(t * n._fr2 + n._ph * 2)));
+  }
+  requestAnimationFrame(breathe);
+})();
+
+// gentle continuous auto-rotate — spins like a globe, and resumes on its own
+// after you grab/let go (no longer dies permanently on first interaction).
+(function setupAutoRotate() {
+  const ctrls = Graph.controls();
+  if (!ctrls) { setTimeout(setupAutoRotate, 200); return; }
+  ctrls.autoRotate = true;
+  ctrls.autoRotateSpeed = 0.45;   // gentle globe drift
+})();
+
+// neon bloom — desktop only; phone GPUs choke on full-screen retina bloom.
+// Mobile gets brightness from the colors themselves + a capped pixel ratio.
+if (IS_MOBILE) {
+  try { Graph.renderer().setPixelRatio(Math.min(1.5, window.devicePixelRatio)); } catch (e) {}
+} else {
+  try {
+    // render at native Retina (2x) so small/zoomed-out stars stay sharp instead of aliasing
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    Graph.renderer().setPixelRatio(dpr);
+    const { UnrealBloomPass } = await import('https://esm.sh/three@0.180.0/examples/jsm/postprocessing/UnrealBloomPass.js?external=three');
+    const bloom = new UnrealBloomPass();
+    bloom.strength = 1.15;
+    bloom.radius = 0.5;
+    bloom.threshold = 0.08;
+    const composer = Graph.postProcessingComposer();
+    if (composer.setPixelRatio) composer.setPixelRatio(dpr);   // keep bloom at the same sharpness
+    composer.addPass(bloom);
+  } catch (e) { console.warn('bloom unavailable:', e); }
+}
+
+// search: full-content grep across the whole corpus (incl. raw chat logs).
+// Lights up EVERY star that mentions the term + lists every hit (so archive
+// files that aren't bright stars are still reachable).
+window.Graph = Graph;  // debug/automation handle
+
+// a file is "retired" if it sits in a _retired/ or retired/ folder — archived,
+// not worth editing. Flagged in results + the reader so Mike knows to leave it.
+function isRetired(p){ return /(^|\/)_?retired(\/|$)/i.test(p); }
+// private = sealed register (only visible once unlocked) — flag it so Mike always
+// knows when he's reading private content.
+function isPrivate(p){ return p.toLowerCase().includes('private'); }
+
+// shared opener — used by star clicks AND search-result clicks
+function galaxyOpenPath(relpath) {
+  const node = DATA.nodes.find(x => x.id === relpath);
+  const label = node ? node.label : relpath.split('/').pop().replace(/\.md$/, '');
+  panelBody.innerHTML = `
+    <h2>${label}</h2>
+    <div class="path">${relpath}</div>
+    <div class="meta">${node ? (LABELS[node.group] || node.group) + ' · ' + (node.size/1024).toFixed(1) + ' KB · touched ' + node.mtime : 'archive / raw log'}</div>
+    ${isPrivate(relpath) ? '<div style="color:#ff3a55;font-size:11px;margin-top:3px;letter-spacing:.06em">&#128274; PRIVATE &mdash; sealed register</div>' : ''}
+    ${isRetired(relpath) ? '<div style="color:#ffab40;font-size:11px;margin-top:3px;letter-spacing:.06em">&#9888; RETIRED &mdash; archived, don&rsquo;t edit</div>' : ''}
+    <div class="content">loading…</div>`;
+  panel.style.display = 'block';
+  if (node && node.x != null) {
+    const ratio = 1 + 90 / Math.hypot(node.x, node.y, node.z);
+    Graph.cameraPosition({ x: node.x*ratio, y: node.y*ratio, z: node.z*ratio }, node, 1000);
+  }
+  const contentEl = panelBody.querySelector('.content');
+  if (location.protocol === 'file:') { contentEl.textContent = '(open via the galaxy server to read files)'; return; }
+  const terms = searchBox.value.trim().toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+  fetch('/file/' + relpath.split('/').map(encodeURIComponent).join('/'), { headers: keyHeaders() })
+    .then(r => r.ok ? r.text() : Promise.reject(r.status))
+    .then(txt => renderContent(contentEl, txt, terms))
+    .catch(() => { contentEl.textContent = '(file unavailable)'; });
+}
+
+// highlight the searched term(s) in gold inside the opened file, with a ▲/▼
+// match-navigator to jump between occurrences (current hit lit brighter).
+document.head.insertAdjacentHTML('beforeend', '<style>mark.hl{color:#ffe14d;background:rgba(255,210,74,.15);font-weight:700;border-radius:2px;padding:0 1px}mark.cur{color:#0a0e14;background:#ff6b35;box-shadow:0 0 0 2px #ff6b35}</style>');
+const matchNav = document.createElement('div');
+matchNav.id = 'matchnav';
+matchNav.style.cssText = 'position:fixed;right:24px;bottom:22px;display:none;z-index:60;align-items:center;gap:10px;background:rgba(12,8,28,.96);border:1px solid #3a2f6b;border-radius:22px;padding:6px 14px;font:13px ui-monospace,Menlo,monospace;color:#cfc7f5;user-select:none;';
+matchNav.innerHTML = '<span id="mn-up" style="cursor:pointer;font-size:15px;padding:0 4px">▲</span><span id="mn-count" style="color:#ffd24a;min-width:56px;text-align:center"></span><span id="mn-down" style="cursor:pointer;font-size:15px;padding:0 4px">▼</span>';
+document.body.appendChild(matchNav);
+let matchEls = [], matchIdx = 0;
+function showMatch(i){
+  if (!matchEls.length) return;
+  matchEls[matchIdx]?.classList.remove('cur');
+  matchIdx = (i + matchEls.length) % matchEls.length;          // wrap around
+  matchEls[matchIdx].classList.add('cur');
+  matchEls[matchIdx].scrollIntoView({ block: 'center' });
+  document.getElementById('mn-count').textContent = (matchIdx + 1) + ' / ' + matchEls.length;
+}
+document.getElementById('mn-up').onclick = () => showMatch(matchIdx - 1);
+document.getElementById('mn-down').onclick = () => showMatch(matchIdx + 1);
+function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function renderContent(el, txt, terms){
+  const LIMIT = 60000; let note = '';
+  if (txt.length > LIMIT){
+    let first = -1; const low = txt.toLowerCase();
+    for (const t of terms){ const i = low.indexOf(t); if (i >= 0 && (first < 0 || i < first)) first = i; }
+    const start = first > 2000 ? first - 2000 : 0;
+    txt = txt.slice(start, start + LIMIT);
+    note = start > 0 ? '… (jumped to first match)\n\n' : '';
+  }
+  let body = escHtml(txt);
+  if (terms.length){
+    const rx = new RegExp('(' + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')', 'gi');
+    body = body.replace(rx, '<mark class="hl">$1</mark>');
+  }
+  el.innerHTML = escHtml(note) + body;
+  matchEls = [...el.querySelectorAll('mark.hl')];
+  matchIdx = 0;
+  if (matchEls.length){ matchNav.style.display = 'flex'; showMatch(0); }
+  else { matchNav.style.display = 'none'; }
+}
+
+// results panel (built dynamically so the template CSS stays untouched)
+const resultsBox = document.createElement('div');
+resultsBox.id = 'results';
+resultsBox.style.cssText = 'position:fixed;left:14px;top:62px;width:300px;height:480px;min-width:200px;max-width:78vw;min-height:140px;max-height:88vh;overflow:auto;resize:both;background:rgba(12,8,28,.93);border:1px solid #3a2f6b;border-radius:10px;padding:10px 12px;font:12px/1.45 ui-monospace,Menlo,monospace;color:#cfc7f5;display:none;z-index:50;backdrop-filter:blur(6px);';
+document.body.appendChild(resultsBox);
+
+const searchBox = document.getElementById('search');
+let searchTimer = null, lastHits = [], privKey = '';
+
+// 🔒 private unlock — localhost only; passphrase verified server-side by hash,
+// never stored in plaintext. Locked by default; re-locks on reload/restart.
+const lockBtn = document.createElement('div');
+lockBtn.id = 'lockbtn';
+lockBtn.textContent = '🔒 private';
+lockBtn.style.cssText = 'position:fixed;top:15px;right:332px;z-index:55;cursor:pointer;background:rgba(12,8,28,.93);border:1px solid #3a2f6b;border-radius:18px;padding:6px 14px;font:12px ui-monospace,Menlo,monospace;color:#9a9690;user-select:none;';
+document.body.appendChild(lockBtn);
+function keyHeaders(){ return privKey ? { 'X-Cortex-Key': privKey } : {}; }
+function rerunSearch(){ if (searchBox.value.trim().length >= 2) searchBox.dispatchEvent(new Event('input')); }
+lockBtn.onclick = async () => {
+  if (privKey){ privKey = ''; lockBtn.textContent = '🔒 private'; lockBtn.style.color = '#9a9690'; rerunSearch(); return; }
+  const pass = prompt('Private passphrase — unlocks private files (this Mac only):');
+  if (!pass) return;
+  try {
+    const d = await fetch('/search?q=__probe__', { headers: { 'X-Cortex-Key': pass } }).then(r => r.json());
+    if (d.authed){ privKey = pass; lockBtn.textContent = '🔓 unlocked'; lockBtn.style.color = '#5cf08a'; rerunSearch(); }
+    else alert('Wrong passphrase — still locked.');
+  } catch(e){ alert('Could not reach the galaxy server.'); }
+};
+
+function applyDim(q, set) {
+  const ws = q.split(/\s+/).filter(t => t.length >= 2);
+  Graph.nodeColor(n => {
+    const id = n.id.toLowerCase(), lab = n.label.toLowerCase();
+    const fn = ws.length && ws.every(w => id.includes(w) || lab.includes(w));   // all words in name/path
+    const hit = !q || fn || (set && set.has(n.id));
+    return hit ? (COLORS[n.group] || COLORS.memory) : 'rgba(60,60,90,0.18)';
+  });
+}
+function renderResults(q, hits) {
+  if (!q) { resultsBox.style.display = 'none'; return; }
+  if (!hits.length) { resultsBox.innerHTML = `<div style="color:#7d72b5">no files mention &ldquo;${q}&rdquo;</div>`; resultsBox.style.display = 'block'; return; }
+  const rows = hits.slice(0, 400).map(p => {
+    const nm = p.split('/').pop().replace(/\.md$/, ''), area = p.split('/')[0];
+    let tag = '';
+    if (isPrivate(p)) tag += '<span style="color:#ff3a55;font-style:italic"> &#128274; private</span>';
+    if (isRetired(p)) tag += '<span style="color:#ffab40;font-style:italic"> &middot; retired</span>';
+    return `<div class="rhit" data-p="${p.replace(/"/g,'&quot;')}" style="padding:4px 2px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.06);"><span style="color:#8f7bff">${area}/</span>${nm}${tag}</div>`;
+  }).join('');
+  resultsBox.innerHTML = `<div style="color:#ffd24a;margin-bottom:6px">${hits.length} file${hits.length>1?'s':''} mention &ldquo;${q}&rdquo;${hits.length>400?' · showing 400':''}</div>${rows}`;
+  resultsBox.style.display = 'block';
+  resultsBox.querySelectorAll('.rhit').forEach(el => el.addEventListener('click', () => galaxyOpenPath(el.dataset.p)));
+}
+searchBox.addEventListener('input', () => {
+  const q = searchBox.value.trim().toLowerCase();
+  applyDim(q, null);                              // instant filename dim
+  clearTimeout(searchTimer);
+  if (q.length < 2) { resultsBox.style.display = 'none'; lastHits = []; return; }
+  searchTimer = setTimeout(() => {
+    fetch('/search?q=' + encodeURIComponent(q), { headers: keyHeaders() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => { lastHits = d.hits || []; applyDim(q, new Set(lastHits)); renderResults(q, lastHits); })
+      .catch(() => {});                           // file:// or offline → keep filename dim
+  }, 280);
+});
+searchBox.addEventListener('keydown', e => { if (e.key === 'Enter' && lastHits.length) galaxyOpenPath(lastHits[0]); });
+</script>
+</body>
+</html>

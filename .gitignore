@@ -1,0 +1,12 @@
+# build artifacts — regenerate with `python3 index.py`
+bc-cortex.html
+brain.json
+
+# your private unlock key (salted hash) — NEVER commit
+.private-key
+
+# your own notes are yours — uncomment to keep them out of git:
+# brain/
+
+.DS_Store
+__pycache__/
